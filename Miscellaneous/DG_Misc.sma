@@ -2,23 +2,32 @@
 #include <reapi>
 #include <DeathGift>
 
-#define MAX_HEALTH 120
-#define MAX_ARMOR 120
-
 new const PLUG_NAME[] = "[DG] Misc Bonuses";
-new const PLUG_VER[] = "1.0.0";
+new const PLUG_VER[] = "1.1.0";
+
+new Float:g_fSpeedMult[MAX_PLAYERS + 1] = {1.0, ...};
+
+new HookChain:g_iHook_ResetMaxSpeed = INVALID_HOOKCHAIN;
+new HookChain:g_iHook_Spawn_Pre = INVALID_HOOKCHAIN;
 
 public DG_OnBonusesInit(){
     register_plugin(PLUG_NAME, PLUG_VER, "ArKaNeMaN");
 
     DG_RegisterBonus(
+        "Misc-Speed", "@Bonus_Speed",
+        "Multiplier", ptFloat,
+        "Duration", ptFloat
+    );
+    DG_RegisterBonus(
         "Misc-Health", "@Bonus_Health",
         "Health", ptInteger,
+        "ToHealth", ptInteger,
         "MaxHealth", ptInteger
     );
     DG_RegisterBonus(
         "Misc-Armor", "@Bonus_Armor",
         "Armor", ptInteger,
+        "ToArmor", ptInteger,
         "MaxArmor", ptInteger
     );
     DG_RegisterBonus(
@@ -32,29 +41,67 @@ public DG_OnBonusesInit(){
         "GiveType", ptString
     );
     DG_RegisterBonus("Misc-Empty", "@Bonus_Empty");
+
+    DisableHookChain(g_iHook_ResetMaxSpeed = RegisterHookChain(RG_CBasePlayer_ResetMaxSpeed, "@OnResetMaxSpeedPost", true));
+    DisableHookChain(g_iHook_Spawn_Pre = RegisterHookChain(RG_CBasePlayer_Spawn, "@OnPlayerSpawnPre", false));
+}
+
+@OnResetMaxSpeedPost(const UserId) {
+    MultUserSpeed(UserId, g_fSpeedMult[UserId]);
+}
+
+@OnPlayerSpawnPre(const UserId) {
+    g_fSpeedMult[UserId] = 1.0;
+}
+
+@Bonus_Speed(const UserId, const Trie:p){
+    g_fSpeedMult[UserId] = DG_ReadParamFloat(p, "Multiplier", 1.0);
+
+    MultUserSpeed(UserId, g_fSpeedMult[UserId]);
+    
+    EnableHookChain(g_iHook_ResetMaxSpeed);
+    EnableHookChain(g_iHook_Spawn_Pre);
+
+    new Float:fDuration = DG_ReadParamFloat(p, "Duration", 0.0);
+
+    if (fDuration > 0.0) {
+        set_task(fDuration, "@Task_ResetSpeedMult", UserId);
+    }
+}
+
+@Task_ResetSpeedMult(const UserId) {
+    g_fSpeedMult[UserId] = 1.0;
+    rg_reset_maxspeed(UserId);
 }
 
 @Bonus_Health(const UserId, const Trie:p){
     new Health = DG_ReadParamInt(p, "Health");
-    new MaxHealth = DG_ReadParamInt(p, "MaxHealth", Health);
+    new ToHealth = DG_ReadParamInt(p, "ToHealth", Health);
+    new MaxHealth = DG_ReadParamInt(p, "MaxHealth", 100);
 
-    Health = random_num(Health, MaxHealth);
-    Health = clamp(Health+get_user_health(UserId), 0, MAX_HEALTH);
+    if (get_user_health(UserId) >= MaxHealth) {
+        return;
+    }
 
-    set_entvar(UserId, var_health, float(Health));
+    set_entvar(UserId, var_health, float(clamp(get_user_health(UserId) + random_num(Health, ToHealth), 0, MaxHealth)));
 }
 
 @Bonus_Armor(const UserId, const Trie:p){
     new Armor = DG_ReadParamInt(p, "Armor");
-    new MaxArmor = DG_ReadParamInt(p, "MaxArmor", Armor);
+    new ToArmor = DG_ReadParamInt(p, "ToArmor", Armor);
+    new MaxArmor = DG_ReadParamInt(p, "MaxArmor", 100);
+
+    if (rg_get_user_armor(UserId) >= MaxArmor) {
+        return;
+    }
+
     new ArmorType:Type;
-
-    Armor = random_num(Armor, MaxArmor);
-    Armor = clamp(Armor+rg_get_user_armor(UserId, Type), 0, MAX_ARMOR);
-    if(Type != ARMOR_NONE)
+    new iCurArmor = rg_get_user_armor(UserId, Type);
+    if (Type != ARMOR_NONE) {
         Type = ARMOR_KEVLAR;
+    }
 
-    rg_set_user_armor(UserId, Armor, Type);
+    rg_set_user_armor(UserId, clamp(iCurArmor + random_num(Armor, ToArmor), 0, MaxArmor), Type);
 }
 
 @Bonus_Money(const UserId, const Trie:p){
@@ -76,7 +123,6 @@ public DG_OnBonusesInit(){
     // Пусто))
 }
 
-//================ [ Utils ] ================//
 
 GiveType:StrToGivetype(const Str[]){
     if(equali(Str, "Append"))
@@ -89,4 +135,8 @@ GiveType:StrToGivetype(const Str[]){
         log_amx("[WARNING] Undefined give type `%s`.", Str);
         return GT_DROP_AND_REPLACE;
     }
+}
+
+MultUserSpeed(const UserId, const Float:fMultiplier) {
+    set_entvar(UserId, var_maxspeed, Float:get_entvar(UserId, var_maxspeed) * fMultiplier);
 }
