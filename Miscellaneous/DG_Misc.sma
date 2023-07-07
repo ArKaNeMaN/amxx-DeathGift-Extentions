@@ -71,7 +71,9 @@ public DG_OnBonusesInit(){
 
 @Task_ResetSpeedMult(const UserId) {
     g_fSpeedMult[UserId] = 1.0;
-    rg_reset_maxspeed(UserId);
+    if (is_user_connected(UserId)) {
+        rg_reset_maxspeed(UserId);
+    }
 }
 
 @Bonus_Health(const UserId, const Trie:p){
